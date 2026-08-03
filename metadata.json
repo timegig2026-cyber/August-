@@ -1,0 +1,6 @@
+{
+  "name": "August",
+  "description": "A warm, supportive AI companion that speaks to you like a close friend.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
