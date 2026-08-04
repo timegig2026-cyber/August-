@@ -267,7 +267,19 @@ export default function App() {
 
 
   
-    const primeSpeech = () => {
+  const stopAiSpeech = () => {
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch(e){}
+    }
+    if (outputAudioCtxRef.current) {
+      try {
+        outputAudioCtxRef.current.suspend();
+      } catch(e){}
+    }
+    setIsAiSpeaking(false);
+  };
+
+  const primeSpeech = () => {
     try {
       if ('speechSynthesis' in window) {
         window.speechSynthesis.resume();
@@ -281,37 +293,49 @@ export default function App() {
     } catch(e) {}
   };
 
-    const speakTextFallback = (text: string) => {
+  const speakTextFallback = (text: string) => {
     if (!('speechSynthesis' in window)) return;
     try {
-      window.speechSynthesis.cancel();
+      stopAiSpeech();
       window.speechSynthesis.resume();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const preferredVoice = voices.find(v => 
-          (botGender === 'female' ? (v.name.includes('Female') || v.name.includes('Google US English') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Victoria'))
-                                  : (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex') || v.name.includes('George'))) && v.lang.startsWith('en')
-        ) || voices.find(v => v.lang.startsWith('en'));
-        if (preferredVoice) utterance.voice = preferredVoice;
-      }
-
-      utterance.onstart = () => setIsAiSpeaking(true);
-      utterance.onend = () => {
-        setIsAiSpeaking(false);
-        if (autoSpeakRef.current) {
-          setTimeout(() => {
-            startMic();
-          }, 400);
+      const doSpeak = () => {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const preferredVoice = voices.find(v => 
+            (botGender === 'female' ? (v.name.includes('Female') || v.name.includes('Google US English') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Victoria') || v.name.includes('Karen') || v.name.includes('Fiona'))
+                                    : (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex') || v.name.includes('George') || v.name.includes('Daniel'))) && v.lang.startsWith('en')
+          ) || voices.find(v => v.lang.startsWith('en'));
+          if (preferredVoice) utterance.voice = preferredVoice;
         }
+
+        utterance.onstart = () => setIsAiSpeaking(true);
+        utterance.onend = () => {
+          setIsAiSpeaking(false);
+          if (autoSpeakRef.current && !isListeningRef.current) {
+            setTimeout(() => {
+              startMic();
+            }, 400);
+          }
+        };
+        utterance.onerror = () => {
+          setIsAiSpeaking(false);
+        };
+        window.speechSynthesis.speak(utterance);
       };
-      utterance.onerror = () => {
-        setIsAiSpeaking(false);
-      };
-      window.speechSynthesis.speak(utterance);
+
+      if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          doSpeak();
+          window.speechSynthesis.onvoiceschanged = null;
+        };
+        doSpeak();
+      } else {
+        doSpeak();
+      }
     } catch (e) {
       console.error("Speech synthesis error:", e);
       setIsAiSpeaking(false);
@@ -420,10 +444,12 @@ export default function App() {
         let finalTranscript = '';
 
         recognition.onstart = () => {
+          stopAiSpeech();
           setIsListening(true);
         };
 
         recognition.onresult = (event: any) => {
+          stopAiSpeech();
           let interim = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
@@ -491,6 +517,7 @@ export default function App() {
   }, [isListening]);
 
   const toggleListening = () => {
+    stopAiSpeech();
     if (isListening) {
       stopMic();
     } else {
@@ -509,6 +536,7 @@ export default function App() {
   }, [messages]);
 
   const handleSend = async (overrideText?: string) => {
+    stopAiSpeech();
     primeSpeech();
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
     if (!textToSend || isLoadingResponse) return;
@@ -571,7 +599,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-black font-sans selection:bg-[#e8f5e9] relative">
+    <div className="h-screen h-[100dvh] w-full bg-white text-black font-sans selection:bg-[#e8f5e9] relative overflow-hidden flex flex-col">
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] opacity-50 z-0"></div>
       
       <div className="relative z-10">
@@ -707,35 +735,29 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-md flex flex-col items-center justify-center p-4 overflow-y-auto"
+            className="fixed inset-0 z-[120] bg-neutral-950 p-6 md:p-12 overflow-y-auto flex flex-col justify-between text-white"
           >
-            <div className="max-w-xs w-full bg-neutral-900/95 border border-neutral-700 p-4 rounded-2xl shadow-2xl relative text-white">
-
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-neutral-800">
+            <div className="max-w-4xl w-full mx-auto flex-1 flex flex-col">
+              <div className="flex items-center justify-between pb-6 border-b border-neutral-800 mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-2xl">
+                    <Sparkles size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-bold tracking-tight">Top Up August Coins</h2>
+                    <p className="text-xs text-neutral-400">Select a coin plan to continue uninterrupted voice & text chats (10 coins/msg)</p>
+                  </div>
+                </div>
                 <button 
                   onClick={() => setShowPricing(false)}
-                  className="bg-neutral-800 hover:bg-neutral-700 text-white px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-bold"
-                  title="Back"
-                >
-                  <ArrowLeft size={16} /> <span>Back</span>
-                </button>
-                <button 
-                  onClick={() => setShowPricing(false)}
-                  className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white p-1.5 rounded-full transition-colors"
+                  className="p-3 bg-neutral-800 hover:bg-neutral-700 rounded-full transition-colors text-white"
                   title="Close"
                 >
-                  <X size={16} />
+                  <X size={20} />
                 </button>
               </div>
 
-              <div className="text-center mb-3">
-                <h2 className="text-xl font-bold tracking-tight text-white mb-0.5">August Plans</h2>
-                <p className="text-neutral-400 text-[11px] leading-snug">
-                  Choose a plan to top up your coins (10c per msg).
-                </p>
-              </div>
-
-              <div className="space-y-2 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                 {[
                   { title: 'Starter', price: '1.99', rand: 'R35.00', coins: '100', desc: '100 credits' },
                   { title: 'Basic', price: '3.99', rand: 'R75.00', coins: '400', desc: '400 credits' },
@@ -746,23 +768,34 @@ export default function App() {
                   <div 
                     key={plan.title} 
                     onClick={() => setSelectedPlanForPayment(plan)}
-                    className="p-3 rounded-xl border border-neutral-800 bg-neutral-800/60 hover:bg-neutral-800 hover:border-green-500/50 transition-all cursor-pointer flex items-center justify-between group"
+                    className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 hover:bg-neutral-900 hover:border-emerald-500/80 transition-all cursor-pointer flex flex-col justify-between group shadow-xl relative overflow-hidden"
                   >
-                    <div>
-                      <h3 className="font-bold text-white text-xs">{plan.title}</h3>
-                      <p className="text-[10px] text-neutral-400">{plan.coins} credits</p>
+                    <div className="space-y-2 mb-4">
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-3 py-1 rounded-full inline-block">
+                        {plan.coins} Coins
+                      </span>
+                      <h3 className="font-bold text-xl text-white">{plan.title} Plan</h3>
+                      <p className="text-xs text-neutral-400">Capitec Bank Instant Transfer</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-black text-green-400">${plan.price} <span className="text-[10px] font-normal text-neutral-400">({plan.rand})</span></p>
-                      <span className="text-[8px] uppercase tracking-wider text-neutral-400 group-hover:text-green-300 font-bold block">Capitec Pay</span>
+                    <div className="pt-4 border-t border-neutral-800/80 flex items-baseline justify-between">
+                      <div>
+                        <p className="text-2xl font-black text-emerald-400">${plan.price}</p>
+                        <p className="text-xs text-neutral-400 font-medium">({plan.rand})</p>
+                      </div>
+                      <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all group-hover:scale-105">
+                        Select
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="text-center pt-2 border-t border-neutral-800">
-                <p className="text-[9px] text-neutral-400 italic">
-                  Capitec Bank Transfer (Matthews, Acc: 1334067366)
+              <div className="p-6 bg-neutral-900/60 border border-neutral-800 rounded-3xl text-center space-y-2">
+                <p className="text-xs text-neutral-300 font-medium">
+                  💳 Capitec Bank Transfer (Account Holder: Matthews, Account No: <span className="font-bold text-emerald-400">1334067366</span>)
+                </p>
+                <p className="text-[11px] text-neutral-500">
+                  Upload your proof of payment after selecting a plan. Verification takes 15-20 minutes max.
                 </p>
               </div>
             </div>
@@ -1534,7 +1567,7 @@ export default function App() {
                       </button>
 
                       <button 
-                        onClick={() => { setShowNotifications(!showNotifications); }}
+                        onClick={() => { setShowNotifications(true); setShowThreeDotMenu(false); }}
                         className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
                       >
                         <div className="flex items-center gap-2.5">
@@ -1610,46 +1643,82 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Notifications Popover */}
-                  {showNotifications && (
-                    <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-neutral-200 rounded-2xl shadow-xl z-50 overflow-hidden text-left">
-                      <div className="p-3 border-b border-neutral-100 bg-neutral-50 flex justify-between items-center">
-                        <span className="text-sm font-bold">Notifications</span>
-                        {notifications.length > 0 && (
-                          <button 
-                            onClick={() => {
-                              setNotifications(prev => prev.map(n => ({...n, read: true})));
-                            }}
-                            className="text-[10px] text-neutral-500 hover:text-neutral-700"
-                          >
-                            Mark all read
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="p-4 text-center text-xs text-neutral-500">
-                            No notifications yet
-                          </div>
-                        ) : (
-                          notifications.map(notif => (
-                            <div 
-                              key={notif.id} 
-                              className={`p-3 border-b border-neutral-50 text-xs ${notif.read ? 'text-neutral-500' : 'text-neutral-800 bg-green-50/30 font-medium'} cursor-pointer hover:bg-neutral-50`}
-                              onClick={() => {
-                                setNotifications(prev => prev.map(n => n.id === notif.id ? {...n, read: true} : n));
-                              }}
-                            >
-                              <p>{notif.message}</p>
-                              <p className="text-[9px] text-neutral-400 mt-1">
-                                {new Date(notif.timestamp).toLocaleTimeString()}
-                              </p>
+                  {/* Notifications Full Screen Modal */}
+                  <AnimatePresence>
+                    {showNotifications && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[120] bg-white p-6 md:p-12 overflow-y-auto flex flex-col justify-between text-neutral-800"
+                      >
+                        <div className="max-w-3xl w-full mx-auto flex-1 flex flex-col">
+                          <div className="flex items-center justify-between pb-6 border-b border-neutral-100 mb-6">
+                            <div className="flex items-center gap-3">
+                              <div className="p-3 bg-amber-100 text-amber-700 rounded-2xl">
+                                <Bell size={24} />
+                              </div>
+                              <div>
+                                <h2 className="text-2xl font-bold">Notifications</h2>
+                                <p className="text-xs text-neutral-500">Your system notifications & account alerts</p>
+                              </div>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
+                            <div className="flex items-center gap-3">
+                              {notifications.length > 0 && (
+                                <button 
+                                  onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                                  className="text-xs font-bold text-neutral-600 hover:text-neutral-900 bg-neutral-100 px-3.5 py-2 rounded-xl transition-colors"
+                                >
+                                  Mark all read
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => setShowNotifications(false)}
+                                className="p-2.5 bg-neutral-100 hover:bg-neutral-200 rounded-full transition-colors text-neutral-700"
+                                title="Close"
+                              >
+                                <X size={20} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                            {notifications.length === 0 ? (
+                              <div className="p-12 text-center text-sm text-neutral-400 bg-neutral-50 rounded-2xl border border-neutral-100">
+                                <Bell size={36} className="mx-auto mb-2 opacity-30" />
+                                <p className="font-medium">No notifications yet</p>
+                              </div>
+                            ) : (
+                              notifications.map(notif => (
+                                <div 
+                                  key={notif.id} 
+                                  className={`p-4 rounded-2xl border transition-all text-sm ${notif.read ? 'bg-neutral-50 border-neutral-100 text-neutral-600' : 'bg-emerald-50/50 border-emerald-200 text-neutral-900 font-semibold shadow-sm'} flex justify-between items-start gap-4 cursor-pointer`}
+                                  onClick={() => setNotifications(prev => prev.map(n => n.id === notif.id ? {...n, read: true} : n))}
+                                >
+                                  <div className="space-y-1">
+                                    <p>{notif.message}</p>
+                                    <p className="text-[10px] text-neutral-400 font-normal">{new Date(notif.timestamp).toLocaleString()}</p>
+                                  </div>
+                                  {!notif.read && (
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 mt-1"></span>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="pt-6 border-t border-neutral-100 mt-6 text-center">
+                            <button 
+                              onClick={() => setShowNotifications(false)}
+                              className="px-8 py-3 bg-neutral-900 text-white rounded-xl font-bold text-xs hover:bg-black transition-all"
+                            >
+                              Back to Chat
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
 
