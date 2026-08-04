@@ -267,10 +267,13 @@ export default function App() {
 
 
   
-  const primeSpeech = () => {
+    const primeSpeech = () => {
     try {
       if ('speechSynthesis' in window) {
         window.speechSynthesis.resume();
+        const dummy = new SpeechSynthesisUtterance('');
+        dummy.volume = 0;
+        window.speechSynthesis.speak(dummy);
       }
       if (outputAudioCtxRef.current && outputAudioCtxRef.current.state === 'suspended') {
         outputAudioCtxRef.current.resume();
@@ -278,7 +281,7 @@ export default function App() {
     } catch(e) {}
   };
 
-  const speakTextFallback = (text: string) => {
+    const speakTextFallback = (text: string) => {
     if (!('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
@@ -290,15 +293,24 @@ export default function App() {
       const voices = window.speechSynthesis.getVoices();
       if (voices.length > 0) {
         const preferredVoice = voices.find(v => 
-          (botGender === 'female' ? (v.name.includes('Female') || v.name.includes('Google US English') || v.name.includes('Samantha') || v.name.includes('Zira'))
-                                  : (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex'))) && v.lang.startsWith('en')
+          (botGender === 'female' ? (v.name.includes('Female') || v.name.includes('Google US English') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Victoria'))
+                                  : (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex') || v.name.includes('George'))) && v.lang.startsWith('en')
         ) || voices.find(v => v.lang.startsWith('en'));
         if (preferredVoice) utterance.voice = preferredVoice;
       }
 
       utterance.onstart = () => setIsAiSpeaking(true);
-      utterance.onend = () => setIsAiSpeaking(false);
-      utterance.onerror = () => setIsAiSpeaking(false);
+      utterance.onend = () => {
+        setIsAiSpeaking(false);
+        if (autoSpeakRef.current) {
+          setTimeout(() => {
+            startMic();
+          }, 400);
+        }
+      };
+      utterance.onerror = () => {
+        setIsAiSpeaking(false);
+      };
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.error("Speech synthesis error:", e);
@@ -328,7 +340,14 @@ export default function App() {
         source.buffer = buffer;
         source.connect(ctx.destination);
         source.start(0);
-        source.onended = () => setIsAiSpeaking(false);
+        source.onended = () => {
+          setIsAiSpeaking(false);
+          if (autoSpeakRef.current) {
+            setTimeout(() => {
+              startMic();
+            }, 400);
+          }
+        };
       }, () => {
         try {
           const pcm16 = new Int16Array(bytes.buffer);
@@ -342,7 +361,14 @@ export default function App() {
           source.buffer = audioBuffer;
           source.connect(ctx.destination);
           source.start(0);
-          source.onended = () => setIsAiSpeaking(false);
+          source.onended = () => {
+            setIsAiSpeaking(false);
+            if (autoSpeakRef.current) {
+              setTimeout(() => {
+                startMic();
+              }, 400);
+            }
+          };
         } catch(e) {
           if (fallbackText) speakTextFallback(fallbackText);
           else setIsAiSpeaking(false);
@@ -1211,102 +1237,143 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex-1 flex flex-col items-center justify-center space-y-8"
+            className="flex-1 flex flex-col relative"
           >
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-neutral-100 max-w-sm w-full relative">
-
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Create Your AI Friend</h2>
-                <div className="flex items-center gap-2">
+            {/* Top Corner Header Bar for Setup Screen */}
+            <div className="w-full flex justify-between items-center mb-6 pt-2">
+              <div className="flex items-center gap-2">
+                <Sparkles size={20} className="text-amber-500" />
+                <span className="text-sm font-bold tracking-tight text-neutral-800">AI Friend Studio</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowPricing(true)}
+                  className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-md shadow-emerald-500/20 hover:scale-105 transition-all text-xs font-black text-white uppercase tracking-wider shrink-0"
+                >
+                  <Sparkles size={13} className="text-yellow-200 animate-pulse" />
+                  <span>{coinBalance} Coins</span>
+                </button>
+                <div className="relative">
                   <button 
-                    onClick={() => setShowPricing(true)}
-                    className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-md shadow-emerald-500/20 hover:scale-105 transition-all text-xs font-black text-white uppercase tracking-wider"
+                    onClick={() => {
+                      primeSpeech();
+                      setShowThreeDotMenu(!showThreeDotMenu);
+                      setShowNotifications(false);
+                    }}
+                    className="p-2 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-800 relative"
+                    title="Menu Options"
                   >
-                    <Sparkles size={12} className="text-yellow-200 animate-pulse" />
-                    <span>{coinBalance} Coins</span>
-                  </button>
-                  <div className="relative">
-                    <button 
-                      onClick={() => setShowNotifications(!showNotifications)}
-                      className="p-2.5 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-700 relative"
-                      title="Notifications"
-                    >
-                      <Bell size={18} />
-                      {notifications.filter(n => !n.read).length > 0 && (
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
-                      )}
-                    </button>
-                    {showNotifications && (
-                      <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-neutral-200 rounded-2xl shadow-xl z-50 overflow-hidden text-left">
-                        <div className="p-3 border-b border-neutral-100 bg-neutral-50 flex justify-between items-center">
-                          <span className="text-sm font-bold">Notifications</span>
-                          {notifications.length > 0 && (
-                            <button 
-                              onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
-                              className="text-[10px] text-neutral-500 hover:text-neutral-700"
-                            >
-                              Mark all read
-                            </button>
-                          )}
-                        </div>
-                        <div className="max-h-64 overflow-y-auto">
-                          {notifications.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-neutral-500">
-                              No notifications yet
-                            </div>
-                          ) : (
-                            notifications.map(notif => (
-                              <div 
-                                key={notif.id} 
-                                className={`p-3 border-b border-neutral-50 text-xs ${notif.read ? 'text-neutral-500' : 'text-neutral-800 bg-green-50/30 font-medium'} cursor-pointer hover:bg-neutral-50`}
-                                onClick={() => setNotifications(prev => prev.map(n => n.id === notif.id ? {...n, read: true} : n))}
-                              >
-                                <p>{notif.message}</p>
-                                <p className="text-[9px] text-neutral-400 mt-1">{new Date(notif.timestamp).toLocaleTimeString()}</p>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
+                    <MoreVertical size={18} className="text-neutral-700 hover:text-neutral-900" />
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border border-white"></span>
                     )}
-                  </div>
-                  <button 
-                    onClick={() => setShowProfileModal(true)}
-                    className="p-2.5 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-700"
-                    title="User Profile"
-                  >
-                    <User size={18} />
                   </button>
-                  {authForm.email.trim().toLowerCase() === 'timegig2026@gmail.com' && (
-                    <div className="relative">
+
+                  {/* 3-Dot Dropdown Popup */}
+                  {showThreeDotMenu && (
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-neutral-200 rounded-2xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-1 text-left">
                       <button 
-                        onClick={() => setShowMenuDropdown(!showMenuDropdown)}
-                        className="p-2 bg-gradient-to-b from-neutral-100 to-neutral-200 hover:from-neutral-200 hover:to-neutral-300 rounded-full text-neutral-700 shadow-md shadow-neutral-200 border border-neutral-300 transition-all active:scale-95"
-                        title="Admin Menu"
+                        onClick={() => { setShowProfileModal(true); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
                       >
-                        <Shield size={16} />
-                      </button>
-                      {showMenuDropdown && (
-                        <div className="absolute right-4 mt-2 w-48 bg-white border border-neutral-200 rounded-2xl shadow-2xl z-50 overflow-hidden py-1">
-                          <button 
-                            onClick={() => { setShowAdminPanel(true); setShowMenuDropdown(false); }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-bold text-blue-600 hover:bg-neutral-50 flex items-center gap-2"
-                          >
-                            <Shield size={14} /> Admin Panel
-                          </button>
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-neutral-100 rounded-lg text-neutral-700">
+                            <User size={15} />
+                          </div>
+                          <span>User Profile</span>
                         </div>
+                        <span className="text-[10px] text-neutral-400 font-normal">{userProfile.firstName || 'View'}</span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setShowNotifications(!showNotifications); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-amber-50 rounded-lg text-amber-600">
+                            <Bell size={15} />
+                          </div>
+                          <span>Notifications</span>
+                        </div>
+                        {notifications.filter(n => !n.read).length > 0 ? (
+                          <span className="px-1.5 py-0.5 bg-red-500 text-white text-[9px] font-extrabold rounded-full">
+                            {notifications.filter(n => !n.read).length}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-neutral-400 font-normal">None</span>
+                        )}
+                      </button>
+
+                      <button 
+                        onClick={() => { setShowChatBox(!showChatBox); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-1.5 rounded-lg ${showChatBox ? 'bg-emerald-50 text-emerald-600' : 'bg-neutral-100 text-neutral-500'}`}>
+                            <MessageSquare size={15} />
+                          </div>
+                          <span>Text Chat Mode</span>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${showChatBox ? 'bg-emerald-100 text-emerald-800' : 'bg-neutral-100 text-neutral-500'}`}>
+                          {showChatBox ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setAutoSpeak(!autoSpeak); primeSpeech(); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-1.5 rounded-lg ${autoSpeak ? 'bg-blue-50 text-blue-600' : 'bg-neutral-100 text-neutral-400'}`}>
+                            {autoSpeak ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                          </div>
+                          <span>AI Bot Voice</span>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${autoSpeak ? 'bg-blue-100 text-blue-800' : 'bg-neutral-100 text-neutral-500'}`}>
+                          {autoSpeak ? 'ON' : 'MUTED'}
+                        </span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setIsSetupComplete(false); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-neutral-100 rounded-lg text-neutral-700">
+                            <Settings size={15} />
+                          </div>
+                          <span>Bot Personalization</span>
+                        </div>
+                      </button>
+
+                      {authForm.email.trim().toLowerCase() === 'timegig2026@gmail.com' && (
+                        <button 
+                          onClick={() => { setShowAdminPanel(true); setShowThreeDotMenu(false); }}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors border-t border-neutral-100 mt-1 pt-1.5"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-blue-100 rounded-lg text-blue-700">
+                              <Shield size={15} />
+                            </div>
+                            <span>Admin Panel</span>
+                          </div>
+                        </button>
                       )}
                     </div>
                   )}
                 </div>
               </div>
-              <div className="flex justify-center mb-4 mt-2">
-                <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-[#e8f5e9]">
-                   <img src={userProfile.avatar || auraAvatar} alt="Avatar" className="w-full h-full object-cover" />
+            </div>
+
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-neutral-100 max-w-sm w-full relative">
+                <div className="flex justify-center mb-4 mt-2">
+                  <div className="w-16 h-16 rounded-full overflow-hidden border-4 border-[#e8f5e9]">
+                     <img src={userProfile.avatar || auraAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                  </div>
                 </div>
-              </div>
-              <h2 className="text-xl font-bold text-center mb-1">Create Your AI Friend</h2>
-              <p className="text-neutral-500 text-xs text-center mb-6">Personalize your companion before you start chatting.</p>
+                <h2 className="text-xl font-bold text-center mb-1">Create Your AI Friend</h2>
+                <p className="text-neutral-500 text-xs text-center mb-6">Personalize your companion before you start chatting.</p>
               
               <div className="space-y-4">
                 <div>
@@ -1358,11 +1425,16 @@ export default function App() {
                     if (coinBalance < 10) {
                       setShowPricing(true);
                     } else {
+                      primeSpeech();
                       setIsSetupComplete(true);
+                      const introText = getRoleIntroduction(botRole, botName);
+                      setTimeout(() => {
+                        speakTextFallback(introText);
+                      }, 300);
                     }
                   }}
                   disabled={!botName.trim()}
-                  className="w-full py-3 bg-[#2d3436] text-white rounded-xl text-sm font-bold hover:bg-black transition-colors disabled:opacity-50"
+                  className="w-full py-3 bg-[#2d3436] text-white rounded-xl text-sm font-bold hover:bg-black transition-colors disabled:opacity-50 shadow-md"
                 >
                   Start Chatting
                 </button>
@@ -1371,7 +1443,8 @@ export default function App() {
                 </p>
               </div>
             </div>
-          </motion.div>
+          </div>
+        </motion.div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             {coinBalance < 20 && (
@@ -1389,7 +1462,7 @@ export default function App() {
   </div>
 )}
             {/* Header */}
-            <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <header className="flex items-center justify-between gap-3 mb-6 w-full shrink-0">
               <div className="flex items-center gap-4">
                 <button 
                   onClick={() => setIsSetupComplete(false)}
