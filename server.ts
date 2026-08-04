@@ -231,7 +231,7 @@ app.post("/api/chat", async (req, res) => {
     let audioBase64 = null;
     try {
       const ttsResponse = await ai.models.generateContent({
-        model: "gemini-3.1-flash-tts-preview",
+        model: "gemini-2.5-flash",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
           responseModalities: ["AUDIO"],
@@ -242,9 +242,26 @@ app.post("/api/chat", async (req, res) => {
           },
         },
       });
-      audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
     } catch (ttsError) {
-      console.error("TTS Error:", ttsError);
+      console.error("TTS Error with gemini-2.5-flash:", ttsError);
+      try {
+        const ttsFallback = await ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: [{ parts: [{ text: textContent }] }],
+          config: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName },
+              },
+            },
+          },
+        });
+        audioBase64 = ttsFallback.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+      } catch (err2) {
+        console.error("TTS Fallback Error:", err2);
+      }
     }
 
     res.json({ content: textContent, audio: audioBase64 });

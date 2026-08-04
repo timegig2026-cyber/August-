@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Sparkles, Loader2, Heart, Mic, MicOff, Volume2, VolumeX, ArrowLeft, X, Upload, Clock, CheckCircle, Shield, Bell, BarChart2, Users, FileText, LogOut } from 'lucide-react';
+import { Send, User, Sparkles, Loader2, Heart, Mic, MicOff, Volume2, VolumeX, ArrowLeft, X, Upload, Clock, CheckCircle, Shield, Bell, BarChart2, Users, FileText, LogOut, MoreVertical, MessageSquare, Settings } from 'lucide-react';
 import type { Message } from './types';
 
 import auraAvatar from './assets/images/aura_avatar_1785679648305.jpg';
@@ -92,6 +92,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showThreeDotMenu, setShowThreeDotMenu] = useState(false);
   const [showChatBox, setShowChatBox] = useState(true);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -265,7 +266,47 @@ export default function App() {
   }, [isSetupComplete, botName, botGender, botRole]);
 
 
-  const playAudioBase64 = (base64Audio: string) => {
+  
+  const primeSpeech = () => {
+    try {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.resume();
+      }
+      if (outputAudioCtxRef.current && outputAudioCtxRef.current.state === 'suspended') {
+        outputAudioCtxRef.current.resume();
+      }
+    } catch(e) {}
+  };
+
+  const speakTextFallback = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const preferredVoice = voices.find(v => 
+          (botGender === 'female' ? (v.name.includes('Female') || v.name.includes('Google US English') || v.name.includes('Samantha') || v.name.includes('Zira'))
+                                  : (v.name.includes('Male') || v.name.includes('David') || v.name.includes('Alex'))) && v.lang.startsWith('en')
+        ) || voices.find(v => v.lang.startsWith('en'));
+        if (preferredVoice) utterance.voice = preferredVoice;
+      }
+
+      utterance.onstart = () => setIsAiSpeaking(true);
+      utterance.onend = () => setIsAiSpeaking(false);
+      utterance.onerror = () => setIsAiSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Speech synthesis error:", e);
+      setIsAiSpeaking(false);
+    }
+  };
+
+  const playAudioBase64 = (base64Audio: string, fallbackText?: string) => {
     try {
       setIsAiSpeaking(true);
       if (!outputAudioCtxRef.current) {
@@ -303,24 +344,17 @@ export default function App() {
           source.start(0);
           source.onended = () => setIsAiSpeaking(false);
         } catch(e) {
-          setIsAiSpeaking(false);
+          if (fallbackText) speakTextFallback(fallbackText);
+          else setIsAiSpeaking(false);
         }
       });
     } catch (e) {
       console.error("Audio playback error:", e);
-      setIsAiSpeaking(false);
+      if (fallbackText) speakTextFallback(fallbackText);
+      else setIsAiSpeaking(false);
     }
   };
 
-  const speakTextFallback = (text: string) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onstart = () => setIsAiSpeaking(true);
-    utterance.onend = () => setIsAiSpeaking(false);
-    utterance.onerror = () => setIsAiSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  };
 
   const autoSpeakRef = useRef(autoSpeak);
   useEffect(() => {
@@ -449,6 +483,7 @@ export default function App() {
   }, [messages]);
 
   const handleSend = async (overrideText?: string) => {
+    primeSpeech();
     const textToSend = (overrideText !== undefined ? overrideText : input).trim();
     if (!textToSend || isLoadingResponse) return;
 
@@ -496,7 +531,7 @@ export default function App() {
           setMessages(prev => [...prev, botMsg]);
 
           if (data.audio && autoSpeakRef.current) {
-            playAudioBase64(data.audio);
+            playAudioBase64(data.audio, data.content);
           } else if (autoSpeakRef.current) {
             speakTextFallback(data.content);
           }
@@ -1382,7 +1417,8 @@ export default function App() {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 sm:gap-2 items-center relative w-full sm:w-auto justify-between sm:justify-end">
+              
+              <div className="flex gap-2 items-center relative shrink-0">
                 <button 
                   onClick={() => setShowPricing(true)}
                   className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-md shadow-emerald-500/20 hover:scale-105 transition-all text-xs font-black text-white uppercase tracking-wider shrink-0"
@@ -1391,26 +1427,119 @@ export default function App() {
                   <Sparkles size={14} className="text-yellow-200 animate-pulse" />
                   <span>{coinBalance} Coins</span>
                 </button>
-                <button 
-                  onClick={() => setShowProfileModal(true)}
-                  className="p-2.5 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-700"
-                  title="User Profile"
-                >
-                  <User size={18} />
-                </button>
+
+                {/* 3-Dot Menu Button */}
                 <div className="relative">
                   <button 
-                    onClick={() => setShowNotifications(!showNotifications)}
+                    onClick={() => {
+                      setShowThreeDotMenu(!showThreeDotMenu);
+                      setShowNotifications(false);
+                    }}
                     className="p-2.5 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-800 relative"
-                    title="Notifications"
+                    title="Menu Options"
                   >
-                    <Bell size={20} className="text-neutral-700 hover:text-neutral-800 transition-colors" />
+                    <MoreVertical size={20} className="text-neutral-700 hover:text-neutral-900" />
                     {notifications.filter(n => !n.read).length > 0 && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
+                      <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white"></span>
                     )}
                   </button>
+
+                  {/* 3-Dot Dropdown Popup */}
+                  {showThreeDotMenu && (
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-neutral-200 rounded-2xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-1 text-left">
+                      <button 
+                        onClick={() => { setShowProfileModal(true); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-neutral-100 rounded-lg text-neutral-700">
+                            <User size={15} />
+                          </div>
+                          <span>User Profile</span>
+                        </div>
+                        <span className="text-[10px] text-neutral-400 font-normal">{userProfile.firstName || 'View'}</span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setShowNotifications(!showNotifications); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-amber-50 rounded-lg text-amber-600">
+                            <Bell size={15} />
+                          </div>
+                          <span>Notifications</span>
+                        </div>
+                        {notifications.filter(n => !n.read).length > 0 ? (
+                          <span className="px-1.5 py-0.5 bg-red-500 text-white text-[9px] font-extrabold rounded-full">
+                            {notifications.filter(n => !n.read).length}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-neutral-400 font-normal">None</span>
+                        )}
+                      </button>
+
+                      <button 
+                        onClick={() => { setShowChatBox(!showChatBox); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-1.5 rounded-lg ${showChatBox ? 'bg-emerald-50 text-emerald-600' : 'bg-neutral-100 text-neutral-500'}`}>
+                            <MessageSquare size={15} />
+                          </div>
+                          <span>Text Chat Mode</span>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${showChatBox ? 'bg-emerald-100 text-emerald-800' : 'bg-neutral-100 text-neutral-500'}`}>
+                          {showChatBox ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setAutoSpeak(!autoSpeak); primeSpeech(); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-1.5 rounded-lg ${autoSpeak ? 'bg-blue-50 text-blue-600' : 'bg-neutral-100 text-neutral-400'}`}>
+                            {autoSpeak ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                          </div>
+                          <span>AI Bot Voice</span>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${autoSpeak ? 'bg-blue-100 text-blue-800' : 'bg-neutral-100 text-neutral-500'}`}>
+                          {autoSpeak ? 'ON' : 'MUTED'}
+                        </span>
+                      </button>
+
+                      <button 
+                        onClick={() => { setIsSetupComplete(false); setShowThreeDotMenu(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-neutral-100 rounded-lg text-neutral-700">
+                            <Settings size={15} />
+                          </div>
+                          <span>Bot Personalization</span>
+                        </div>
+                      </button>
+
+                      {authForm.email.trim().toLowerCase() === 'timegig2026@gmail.com' && (
+                        <button 
+                          onClick={() => { setShowAdminPanel(true); setShowThreeDotMenu(false); }}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors border-t border-neutral-100 mt-1 pt-1.5"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-blue-100 rounded-lg text-blue-700">
+                              <Shield size={15} />
+                            </div>
+                            <span>Admin Panel</span>
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Notifications Popover */}
                   {showNotifications && (
-                    <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-neutral-200 rounded-2xl shadow-xl z-50 overflow-hidden">
+                    <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-neutral-200 rounded-2xl shadow-xl z-50 overflow-hidden text-left">
                       <div className="p-3 border-b border-neutral-100 bg-neutral-50 flex justify-between items-center">
                         <span className="text-sm font-bold">Notifications</span>
                         {notifications.length > 0 && (
@@ -1449,41 +1578,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <button 
-                  onClick={() => setShowChatBox(!showChatBox)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 shadow-md ${showChatBox ? 'bg-neutral-900 text-white shadow-neutral-900/20' : 'bg-emerald-500 text-white shadow-emerald-500/20'}`}
-                  title={showChatBox ? "Close text chat mode" : "Switch to text chat mode"}
-                >
-                  <span>{showChatBox ? 'Close Text' : 'Text Chat'}</span>
-                </button>
-                <button 
-                  onClick={() => setAutoSpeak(!autoSpeak)}
-                  className="p-2.5 bg-gradient-to-tr from-neutral-100 via-neutral-50 to-white hover:from-neutral-200 hover:to-neutral-100 rounded-full shadow-md shadow-neutral-300/80 border border-neutral-300/90 transition-all active:scale-95 text-neutral-800"
-                  title={autoSpeak ? `Mute ${botName}` : `Let ${botName} speak`}
-                >
-                  {autoSpeak ? <Volume2 size={20} className="text-neutral-700 hover:text-neutral-800" /> : <VolumeX size={20} className="text-neutral-400 hover:text-neutral-700" />}
-                </button>
-                {authForm.email.trim().toLowerCase() === 'timegig2026@gmail.com' && (
-                  <div className="relative">
-                    <button 
-                      onClick={() => setShowMenuDropdown(!showMenuDropdown)}
-                      className="p-2.5 bg-gradient-to-b from-neutral-100 to-neutral-200 hover:from-neutral-200 hover:to-neutral-300 rounded-full text-neutral-700 shadow-md shadow-neutral-200 border border-neutral-300 transition-all active:scale-95"
-                      title="Admin Menu"
-                    >
-                      <Shield size={18} />
-                    </button>
-                    {showMenuDropdown && (
-                      <div className="absolute right-0 mt-2 w-48 bg-white border border-neutral-200 rounded-2xl shadow-2xl z-50 overflow-hidden py-1">
-                        <button 
-                          onClick={() => { setShowAdminPanel(true); setShowMenuDropdown(false); }}
-                          className="w-full text-left px-4 py-2.5 text-xs font-bold text-blue-600 hover:bg-neutral-50 flex items-center gap-2"
-                        >
-                          <Shield size={14} /> Admin Panel
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
             </header>
