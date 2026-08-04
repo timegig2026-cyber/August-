@@ -105,9 +105,9 @@ export default async function handler(req: any, res: any) {
 
     const { voiceName, systemInstruction } = getPersonaConfig(botName, gender, role);
 
-    console.log(`[Vercel /api/chat] Requesting completion from gemini-2.5-flash...`);
+    console.log(`[Vercel /api/chat] Requesting completion from gemini-3.6-flash...`);
     const chatResponse = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: messages.map((m: any) => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content || "" }]
@@ -120,9 +120,9 @@ export default async function handler(req: any, res: any) {
 
     let audioBase64: string | null = null;
     try {
-      console.log(`[Vercel /api/chat] Generating TTS audio modal...`);
+      console.log(`[Vercel /api/chat] Generating TTS audio modal with gemini-3.1-flash-tts-preview...`);
       const ttsResponse = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
           responseModalities: ["AUDIO"],

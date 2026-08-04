@@ -250,9 +250,9 @@ app.post(["/api/chat", "/chat"], async (req, res) => {
       }
     });
 
-    console.log(`[/api/chat] Calling gemini-2.5-flash text model...`);
+    console.log(`[/api/chat] Calling gemini-3.6-flash text model...`);
     const chatResponse = await activeAi.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content || "" }]
@@ -266,9 +266,9 @@ app.post(["/api/chat", "/chat"], async (req, res) => {
     // Generate TTS Audio
     let audioBase64: string | null = null;
     try {
-      console.log(`[/api/chat] Calling gemini-2.5-flash TTS audio model...`);
+      console.log(`[/api/chat] Calling gemini-3.1-flash-tts-preview TTS audio model...`);
       const ttsResponse = await activeAi.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
           responseModalities: ["AUDIO"],
