@@ -23,6 +23,8 @@ function pcmToBase64(pcmData: Float32Array): string {
 
 const getRoleIntroduction = (role: string, name: string) => {
   switch (role) {
+    case 'shy_boyfriend':
+      return `U-um... hi! I'm ${name}... I was really hoping we could talk today. I get a little nervous sometimes, but... I really care about you. How are you doing?`;
     case 'mentor':
       return `Hey there! I'm ${name}, your mentor. I'm here to guide you toward achieving your goals, personal mastery, and success. What big ambition are we tackling today?`;
     case 'teacher':
@@ -1466,7 +1468,7 @@ export default function App() {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 mb-1.5">Relationship Type</label>
                   <div className="grid grid-cols-3 gap-2">
-                    {['mentor', 'teacher', 'rival', 'wealth_strategist', 'religious_guide', 'coding_tutor', 'fitness_coach', 'chef_instructor', 'finance_mentor', 'art_teacher', 'music_sensei', 'science_prof'].map((role) => (
+                    {['shy_boyfriend', 'mentor', 'teacher', 'rival', 'wealth_strategist', 'religious_guide', 'coding_tutor', 'fitness_coach', 'chef_instructor', 'finance_mentor', 'art_teacher', 'music_sensei', 'science_prof'].map((role) => (
                       <button 
                         key={role}
                         onClick={() => setBotRole(role)}

@@ -60,7 +60,9 @@ wss.on("connection", async (clientWs, req) => {
     }
   }
 
-  const roleSpecifics = role === 'religious_guide'
+  const roleSpecifics = role === 'shy_boyfriend'
+    ? "You are a sweet, endearing, and slightly shy boyfriend. You get easily flustered when complimented, but you are deeply affectionate, gentle, and caring toward your partner."
+    : role === 'religious_guide'
     ? "You are a deeply compassionate, wise, and knowledgeable religious guide and spiritual counselor. You provide guidance based on universal spiritual principles, empathy, and philosophical wisdom. You help users find peace, purpose, and moral clarity. Your tone is serene, humble, and deeply respectful of all paths to the divine."
     : role === 'wealth_strategist'
     ? "You are a highly successful, sophisticated, and direct wealth strategist. You give advice on building generational wealth, investment mindsets, and financial discipline. You speak with confidence and authority, often using analogies from the world of high finance and entrepreneurship. You are not just about money, but about the freedom and responsibility that comes with it."
@@ -184,7 +186,9 @@ function getPersonaConfig(botName: string = "August", gender: string = "female",
     }
   }
 
-  const roleSpecifics = role === 'religious_guide'
+  const roleSpecifics = role === 'shy_boyfriend'
+    ? "You are a sweet, endearing, and slightly shy boyfriend. You get easily flustered when complimented, but you are deeply affectionate, gentle, and caring toward your partner."
+    : role === 'religious_guide'
     ? "You are a deeply compassionate, wise, and knowledgeable religious guide and spiritual counselor. You provide guidance based on universal spiritual principles, empathy, and philosophical wisdom. You help users find peace, purpose, and moral clarity. Your tone is serene, humble, and deeply respectful of all paths to the divine."
     : role === 'wealth_strategist'
     ? "You are a highly successful, sophisticated, and direct wealth strategist. You give advice on building generational wealth, investment mindsets, and financial discipline. You speak with confidence and authority, often using analogies from the world of high finance and entrepreneurship. You are not just about money, but about the freedom and responsibility that comes with it."
@@ -250,24 +254,30 @@ app.post(["/api/chat", "/chat"], async (req, res) => {
       }
     });
 
+    // Limit context to last 10 messages for fast token processing
+    const recentMessages = messages.slice(-10);
+
     console.log(`[/api/chat] Calling gemini-3.6-flash text model...`);
     const chatResponse = await activeAi.models.generateContent({
       model: "gemini-3.6-flash",
-      contents: messages.map(m => ({
+      contents: recentMessages.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content || "" }]
       })),
-      config: { systemInstruction },
+      config: { 
+        systemInstruction,
+        maxOutputTokens: 250,
+        temperature: 0.7,
+      },
     });
 
     const textContent = chatResponse.text || `I'm here with you, ${botName} at your service.`;
     console.log(`[/api/chat] Generated response (${textContent.length} chars): "${textContent.slice(0, 60)}..."`);
     
-    // Generate TTS Audio
+    // Fast TTS with 1000ms timeout so server returns in sub-second time
     let audioBase64: string | null = null;
     try {
-      console.log(`[/api/chat] Calling gemini-3.1-flash-tts-preview TTS audio model...`);
-      const ttsResponse = await activeAi.models.generateContent({
+      const ttsPromise = activeAi.models.generateContent({
         model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
@@ -278,10 +288,14 @@ app.post(["/api/chat", "/chat"], async (req, res) => {
             },
           },
         },
-      });
-      audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+      }).then(res => res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null);
+
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000));
+      audioBase64 = await Promise.race([ttsPromise, timeoutPromise]);
       if (audioBase64) {
         console.log(`[/api/chat] Audio generated successfully (${audioBase64.length} bytes base64)`);
+      } else {
+        console.log(`[/api/chat] Fast response returned (using client voice synthesis)`);
       }
     } catch (ttsError) {
       console.error("[/api/chat] TTS Audio Generation Error (falling back to client voice):", ttsError);

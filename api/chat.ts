@@ -22,7 +22,9 @@ function getPersonaConfig(botName: string, gender: string, role: string) {
     }
   }
 
-  const roleSpecifics = role === 'religious_guide'
+  const roleSpecifics = role === 'shy_boyfriend'
+    ? "You are a sweet, endearing, and slightly shy boyfriend. You get easily flustered or bashful when given compliments, but you are deeply affectionate, loyal, and attentive. You speak softly, warmly, and with gentle care for your partner's feelings."
+    : role === 'religious_guide'
     ? "You are a deeply compassionate, wise, and knowledgeable religious guide and spiritual counselor. You provide guidance based on universal spiritual principles, empathy, and philosophical wisdom. You help users find peace, purpose, and moral clarity. Your tone is serene, humble, and deeply respectful of all paths to the divine."
     : role === 'wealth_strategist'
     ? "You are a highly successful, sophisticated, and direct wealth strategist. You give advice on building generational wealth, investment mindsets, and financial discipline. You speak with confidence and authority, often using analogies from the world of high finance and entrepreneurship. You are not just about money, but about the freedom and responsibility that comes with it."
@@ -105,23 +107,30 @@ export default async function handler(req: any, res: any) {
 
     const { voiceName, systemInstruction } = getPersonaConfig(botName, gender, role);
 
+    // Limit context to last 10 messages for fast token processing
+    const recentMessages = messages.slice(-10);
+
     console.log(`[Vercel /api/chat] Requesting completion from gemini-3.6-flash...`);
     const chatResponse = await ai.models.generateContent({
       model: "gemini-3.6-flash",
-      contents: messages.map((m: any) => ({
+      contents: recentMessages.map((m: any) => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content || "" }]
       })),
-      config: { systemInstruction },
+      config: { 
+        systemInstruction,
+        maxOutputTokens: 250,
+        temperature: 0.7,
+      },
     });
 
     const textContent = chatResponse.text || `I am here with you, ${botName} at your service.`;
     console.log(`[Vercel /api/chat] Response generated successfully (${textContent.length} chars)`);
 
+    // Fast TTS with 1000ms timeout to ensure sub-second response on Vercel
     let audioBase64: string | null = null;
     try {
-      console.log(`[Vercel /api/chat] Generating TTS audio modal with gemini-3.1-flash-tts-preview...`);
-      const ttsResponse = await ai.models.generateContent({
+      const ttsPromise = ai.models.generateContent({
         model: "gemini-3.1-flash-tts-preview",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
@@ -132,13 +141,17 @@ export default async function handler(req: any, res: any) {
             },
           },
         },
-      });
-      audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+      }).then(res => res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null);
+
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000));
+      audioBase64 = await Promise.race([ttsPromise, timeoutPromise]);
       if (audioBase64) {
-        console.log(`[Vercel /api/chat] Audio generated (${audioBase64.length} bytes base64)`);
+        console.log(`[Vercel /api/chat] Fast audio generated (${audioBase64.length} bytes base64)`);
+      } else {
+        console.log(`[Vercel /api/chat] Fast response returned (using browser speech fallback)`);
       }
     } catch (ttsErr: any) {
-      console.error("[Vercel /api/chat] TTS Audio Error (client fallback will be used):", ttsErr?.message || ttsErr);
+      console.error("[Vercel /api/chat] TTS Audio Error (client fallback active):", ttsErr?.message || ttsErr);
     }
 
     return res.status(200).json({
