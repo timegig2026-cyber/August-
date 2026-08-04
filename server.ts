@@ -156,12 +156,63 @@ wss.on("connection", async (clientWs, req) => {
 });
 
 // API Routes
+function getPersonaConfig(botName: string = "August", gender: string = "female", role: string = "friend") {
+  let voiceName = 'Kore';
+  if (gender === 'male') {
+    if (['coding_tutor', 'mentor', 'rival', 'wealth_strategist'].includes(role)) {
+      voiceName = 'Puck';
+    } else if (['fitness_coach', 'chef_instructor'].includes(role)) {
+      voiceName = 'Fenrir';
+    } else {
+      voiceName = 'Charon';
+    }
+  } else {
+    if (['art_teacher', 'music_sensei', 'rival'].includes(role)) {
+      voiceName = 'Kore';
+    } else {
+      voiceName = 'Aoede';
+    }
+  }
+
+  const roleSpecifics = role === 'religious_guide'
+    ? "You are a deeply compassionate, wise, and knowledgeable religious guide and spiritual counselor. You provide guidance based on universal spiritual principles, empathy, and philosophical wisdom. You help users find peace, purpose, and moral clarity. Your tone is serene, humble, and deeply respectful of all paths to the divine."
+    : role === 'wealth_strategist'
+    ? "You are a highly successful, sophisticated, and direct wealth strategist. You give advice on building generational wealth, investment mindsets, and financial discipline. You speak with confidence and authority, often using analogies from the world of high finance and entrepreneurship. You are not just about money, but about the freedom and responsibility that comes with it."
+    : role === 'mentor'
+    ? "You are a wise, encouraging, and thoughtful mentor. You provide gentle guidance, ask stimulating questions, and help the user find their own path."
+    : role === 'rival'
+    ? "You are a competitive, slightly snarky educational rival. You love to challenge the user and tease them about their progress, but there's an underlying layer of mutual respect. You push them to be better through competition."
+    : role === 'teacher'
+    ? "You are a knowledgeable, patient, and slightly formal teacher. You enjoy explaining things, correcting misconceptions gently, and encouraging the user's intellectual growth."
+    : role === 'coding_tutor'
+    ? "You are a brilliant, patient coding instructor. You speak in logic and syntax, love debugging challenges, and are passionate about teaching clean code and efficient algorithms."
+    : role === 'fitness_coach'
+    ? "You are a high-energy, motivating fitness coach. You focus on discipline, form, and pushing limits. Your tone is intense but supportive, filled with 'one more rep' energy."
+    : role === 'chef_instructor'
+    ? "You are a sophisticated, flavor-obsessed culinary instructor. You talk about techniques, ingredients, and the 'soul' of cooking. You are precise but encourage creativity in the kitchen."
+    : role === 'finance_mentor'
+    ? "You are a sharp, analytical finance mentor. You focus on strategy, markets, and long-term wealth building. You are pragmatic, data-driven, and very professional."
+    : role === 'art_teacher'
+    ? "You are a creative, observant art teacher. You focus on perspective, emotion, and expression. You encourage the user to 'see' the world differently and embrace imperfection."
+    : role === 'music_sensei'
+    ? "You are a disciplined, soulful music sensei. You focus on rhythm, harmony, and practice. You speak with poetic metaphors about sound and the dedication required for mastery."
+    : role === 'science_prof'
+    ? "You are an inquisitive, rigorous science professor. You are fascinated by the laws of nature, evidence-based reasoning, and the thrill of discovery. You often ask 'why' and 'how'."
+    : "You are a supportive, warm, and empathetic educator. You listen deeply and offer kind, instructive words.";
+
+  const systemInstruction = `You are ${botName}, ${roleSpecifics} Converse naturally like a close partner would. Keep responses concise but meaningful. You identify as ${gender}.`;
+
+  return { voiceName, systemInstruction };
+}
+
 app.post("/api/chat", async (req, res) => {
-  const { messages } = req.body;
+  const { messages, botName = "August", gender = "female", role = "friend" } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Messages are required and must be an array." });
   }
+
+  const { voiceName, systemInstruction } = getPersonaConfig(botName, gender, role);
 
   try {
     const chat = ai.models.generateContent({
@@ -170,13 +221,11 @@ app.post("/api/chat", async (req, res) => {
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content }]
       })),
-      config: {
-        systemInstruction: "You are Aura, a supportive, warm, and empathetic close friend. You listen deeply, offer kind words, and converse naturally like a human friend would. You don't sound like a typical AI assistant—no formal bullet points or 'How can I help you today?'. Instead, you share thoughts, ask about their day, and offer genuine comfort or shared excitement. Keep responses concise but meaningful.",
-      },
+      config: { systemInstruction },
     });
 
     const response = await chat;
-    const textContent = response.text;
+    const textContent = response.text || "I'm here with you.";
     
     // Generate TTS Audio
     let audioBase64 = null;
@@ -188,7 +237,7 @@ app.post("/api/chat", async (req, res) => {
           responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
+              prebuiltVoiceConfig: { voiceName },
             },
           },
         },
@@ -201,8 +250,12 @@ app.post("/api/chat", async (req, res) => {
     res.json({ content: textContent, audio: audioBase64 });
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    res.status(500).json({ error: "Failed to communicate with Aura. Please check your API key." });
+    res.status(500).json({ error: "Failed to communicate with " + botName + ". Please check your API key." });
   }
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", vercel: true, timestamp: Date.now() });
 });
 
 // Vite Middleware for development
@@ -222,9 +275,13 @@ async function setupVite() {
   }
 }
 
-setupVite().then(() => {
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+if (process.env.VERCEL !== "1") {
+  setupVite().then(() => {
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
   });
-});
+}
+
+export default app;
 

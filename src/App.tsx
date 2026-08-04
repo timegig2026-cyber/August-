@@ -137,6 +137,8 @@ export default function App() {
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
@@ -262,12 +264,74 @@ export default function App() {
     };
   }, [isSetupComplete, botName, botGender, botRole]);
 
+
+  const playAudioBase64 = (base64Audio: string) => {
+    try {
+      setIsAiSpeaking(true);
+      if (!outputAudioCtxRef.current) {
+        outputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      const ctx = outputAudioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const binary = atob(base64Audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      ctx.decodeAudioData(bytes.buffer.slice(0), (buffer) => {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+        source.onended = () => setIsAiSpeaking(false);
+      }, () => {
+        try {
+          const pcm16 = new Int16Array(bytes.buffer);
+          const float32 = new Float32Array(pcm16.length);
+          for (let i = 0; i < pcm16.length; i++) {
+            float32[i] = pcm16[i] / 32768;
+          }
+          const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
+          audioBuffer.getChannelData(0).set(float32);
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          source.start(0);
+          source.onended = () => setIsAiSpeaking(false);
+        } catch(e) {
+          setIsAiSpeaking(false);
+        }
+      });
+    } catch (e) {
+      console.error("Audio playback error:", e);
+      setIsAiSpeaking(false);
+    }
+  };
+
+  const speakTextFallback = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onstart = () => setIsAiSpeaking(true);
+    utterance.onend = () => setIsAiSpeaking(false);
+    utterance.onerror = () => setIsAiSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  };
+
   const autoSpeakRef = useRef(autoSpeak);
   useEffect(() => {
     autoSpeakRef.current = autoSpeak;
   }, [autoSpeak]);
 
   const stopMic = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch(e) {}
+      recognitionRef.current = null;
+    }
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -280,29 +344,84 @@ export default function App() {
   };
 
   const startMic = async () => {
-    try {
-      inputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      
-      const source = inputAudioCtxRef.current.createMediaStreamSource(stream);
-      const processor = inputAudioCtxRef.current.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      
-      source.connect(processor);
-      processor.connect(inputAudioCtxRef.current.destination);
-      
-      processor.onaudioprocess = (e) => {
-        if (!isListeningRef.current) return;
-        const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ audio: base64 }));
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      try {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
         }
-      };
-      
-      setIsListening(true);
-    } catch (e) {
-      console.error("Mic access denied or error:", e);
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        let finalTranscript = '';
+
+        recognition.onstart = () => {
+          setIsListening(true);
+        };
+
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interim += event.results[i][0].transcript;
+            }
+          }
+          setInput(finalTranscript || interim);
+        };
+
+        recognition.onerror = (e: any) => {
+          console.log("Speech recognition error:", e);
+          setIsListening(false);
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+          const textToSubmit = finalTranscript.trim() || input.trim();
+          if (textToSubmit) {
+            handleSend(textToSubmit);
+          }
+        };
+
+        recognition.start();
+        return;
+      } catch (e) {
+        console.error("Speech recognition error:", e);
+      }
+    }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        inputAudioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        
+        const source = inputAudioCtxRef.current.createMediaStreamSource(stream);
+        const processor = inputAudioCtxRef.current.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+        
+        source.connect(processor);
+        processor.connect(inputAudioCtxRef.current.destination);
+        
+        processor.onaudioprocess = (e) => {
+          if (!isListeningRef.current) return;
+          const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ audio: base64 }));
+          }
+        };
+        
+        setIsListening(true);
+      } catch (e) {
+        console.error("Mic access denied or error:", e);
+      }
+    } else {
+      alert("Microphone speech recognition is not supported in this browser mode. Please type your message.");
     }
   };
 
@@ -329,8 +448,9 @@ export default function App() {
     }
   }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim() || !isLiveConnected) return;
+  const handleSend = async (overrideText?: string) => {
+    const textToSend = (overrideText !== undefined ? overrideText : input).trim();
+    if (!textToSend || isLoadingResponse) return;
 
     if (coinBalance < 10) {
       setShowPricing(true);
@@ -340,18 +460,53 @@ export default function App() {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input.trim(),
+      content: textToSend,
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setCoinBalance(prev => prev - 10);
-    
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ text: input.trim() }));
-    }
-    
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setCoinBalance(prev => Math.max(0, prev - 10));
     setInput('');
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ text: textToSend }));
+    } else {
+      setIsLoadingResponse(true);
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: newMessages,
+            botName,
+            gender: botGender,
+            role: botRole,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.content) {
+          const botMsg: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'bot',
+            content: data.content,
+            timestamp: Date.now(),
+          };
+          setMessages(prev => [...prev, botMsg]);
+
+          if (data.audio && autoSpeakRef.current) {
+            playAudioBase64(data.audio);
+          } else if (autoSpeakRef.current) {
+            speakTextFallback(data.content);
+          }
+        }
+      } catch (err) {
+        console.error("HTTP chat error:", err);
+      } finally {
+        setIsLoadingResponse(false);
+      }
+    }
   };
 
   return (
@@ -1217,13 +1372,13 @@ export default function App() {
                       referrerPolicy="no-referrer"
                     />
                   </div>
-                  <div className={`absolute -bottom-1 -right-1 w-4 h-4 border-2 border-white rounded-full ${isLiveConnected ? 'bg-green-400' : 'bg-neutral-300'}`}></div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 border-2 border-white rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></div>
                 </div>
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight">{botName}</h1>
                   <p className="text-sm text-neutral-500 flex items-center gap-1">
                     <Sparkles size={12} className={isLiveConnected ? "text-amber-400" : "text-neutral-300"} />
-                    {isLiveConnected ? "Your AI Friend is online" : "Connecting..."}
+                    {isLiveConnected ? "AI Live Studio • Online" : "Vercel AI Engine • Online"}
                   </p>
                 </div>
               </div>
@@ -1359,6 +1514,18 @@ export default function App() {
                 </div>
               </motion.div>
             ))}
+            {isLoadingResponse && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex justify-start mb-4"
+              >
+                <div className="max-w-[85%] rounded-2xl px-5 py-3 shadow-sm bg-white border border-neutral-100 text-[#2d3436] rounded-tl-none flex items-center gap-2">
+                  <Sparkles size={14} className="text-amber-500 animate-spin" />
+                  <span className="text-xs font-medium text-neutral-500">{botName} is thinking...</span>
+                </div>
+              </motion.div>
+            )}
             {currentBotText && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -1426,7 +1593,7 @@ export default function App() {
               </button>
               <button
                 onClick={handleSend}
-                disabled={!isLiveConnected || (!input.trim() && !isListening) || coinBalance < 10}
+                disabled={isLoadingResponse || (!input.trim() && !isListening) || coinBalance < 10}
                 className="p-3 bg-[#2d3436] text-white rounded-xl hover:bg-black transition-all disabled:opacity-30 disabled:cursor-not-allowed group"
               >
                 <Send size={18} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
