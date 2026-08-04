@@ -589,8 +589,16 @@ export default function App() {
           }),
         });
 
-        const data = await res.json();
-        if (data.content) {
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          const rawText = await res.text().catch(() => '');
+          console.error("Non-JSON API response from /api/chat:", rawText);
+          data = { error: "Non-JSON response", content: null };
+        }
+
+        if (data && data.content) {
           const botMsg: Message = {
             id: (Date.now() + 1).toString(),
             role: 'bot',
@@ -604,19 +612,22 @@ export default function App() {
           } else if (autoSpeakRef.current) {
             speakTextFallback(data.content);
           }
-        } else if (data.error) {
-          const errText = "I had trouble generating a response. Please try again.";
+        } else {
+          const fallbackText = data?.error 
+            ? `I encountered an issue: ${data.error}. Please try again.`
+            : "I had trouble generating a response. Please try again.";
+          
           setMessages(prev => [...prev, {
             id: (Date.now() + 1).toString(),
             role: 'bot',
-            content: errText,
+            content: fallbackText,
             timestamp: Date.now(),
           }]);
-          if (autoSpeakRef.current) speakTextFallback(errText);
+          if (autoSpeakRef.current) speakTextFallback(fallbackText);
         }
       } catch (err) {
-        console.error("HTTP chat error:", err);
-        const errText = "Sorry, I couldn't reach the server right now. Please try again.";
+        console.error("HTTP chat fetch error:", err);
+        const errText = "Sorry, I couldn't connect to the AI service right now. Please verify network connection or try again.";
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(),
           role: 'bot',

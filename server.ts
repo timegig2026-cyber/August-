@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
@@ -15,6 +14,17 @@ const wss = new WebSocketServer({ server, path: '/live' });
 const PORT = 3000;
 
 app.use(express.json());
+
+// Enable CORS
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
+});
 
 // Initialize Gemini API
 const ai = new GoogleGenAI({
@@ -205,7 +215,7 @@ function getPersonaConfig(botName: string = "August", gender: string = "female",
   return { voiceName, systemInstruction };
 }
 
-app.post("/api/chat", async (req, res) => {
+app.post(["/api/chat", "/chat"], async (req, res) => {
   const { messages, botName = "August", gender = "female", role = "friend" } = req.body;
 
   console.log(`[/api/chat] Incoming chat request for bot: "${botName}" (${role}/${gender}), messages count: ${messages?.length || 0}`);
@@ -288,18 +298,23 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-app.get("/api/health", (req, res) => {
+app.get(["/api/health", "/health"], (req, res) => {
   res.json({ status: "ok", vercel: true, timestamp: Date.now() });
 });
 
 // Vite Middleware for development
 async function setupVite() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.warn("Vite import skipped in production/Vercel serverless mode");
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
