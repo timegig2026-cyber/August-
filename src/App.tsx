@@ -267,6 +267,8 @@ export default function App() {
 
 
   
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const stopAiSpeech = () => {
     if ('speechSynthesis' in window) {
       try { window.speechSynthesis.cancel(); } catch(e){}
@@ -299,6 +301,7 @@ export default function App() {
       stopAiSpeech();
       window.speechSynthesis.resume();
       const utterance = new SpeechSynthesisUtterance(text);
+      currentUtteranceRef.current = utterance;
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       
@@ -315,6 +318,7 @@ export default function App() {
         utterance.onstart = () => setIsAiSpeaking(true);
         utterance.onend = () => {
           setIsAiSpeaking(false);
+          currentUtteranceRef.current = null;
           if (autoSpeakRef.current && !isListeningRef.current) {
             setTimeout(() => {
               startMic();
@@ -323,8 +327,19 @@ export default function App() {
         };
         utterance.onerror = () => {
           setIsAiSpeaking(false);
+          currentUtteranceRef.current = null;
         };
-        window.speechSynthesis.speak(utterance);
+
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+          try {
+            window.speechSynthesis.resume();
+            window.speechSynthesis.speak(utterance);
+          } catch(err) {
+            console.error("SpeechSynthesis error:", err);
+            setIsAiSpeaking(false);
+          }
+        }, 50);
       };
 
       if (window.speechSynthesis.getVoices().length === 0) {
@@ -589,9 +604,26 @@ export default function App() {
           } else if (autoSpeakRef.current) {
             speakTextFallback(data.content);
           }
+        } else if (data.error) {
+          const errText = "I had trouble generating a response. Please try again.";
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 1).toString(),
+            role: 'bot',
+            content: errText,
+            timestamp: Date.now(),
+          }]);
+          if (autoSpeakRef.current) speakTextFallback(errText);
         }
       } catch (err) {
         console.error("HTTP chat error:", err);
+        const errText = "Sorry, I couldn't reach the server right now. Please try again.";
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'bot',
+          content: errText,
+          timestamp: Date.now(),
+        }]);
+        if (autoSpeakRef.current) speakTextFallback(errText);
       } finally {
         setIsLoadingResponse(false);
       }

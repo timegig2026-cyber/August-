@@ -208,29 +208,56 @@ function getPersonaConfig(botName: string = "August", gender: string = "female",
 app.post("/api/chat", async (req, res) => {
   const { messages, botName = "August", gender = "female", role = "friend" } = req.body;
 
+  console.log(`[/api/chat] Incoming chat request for bot: "${botName}" (${role}/${gender}), messages count: ${messages?.length || 0}`);
+
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: "Messages are required and must be an array." });
+    return res.status(200).json({ 
+      content: "I didn't receive any messages to respond to.", 
+      audio: null, 
+      error: "Messages are required and must be an array." 
+    });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+  if (!apiKey) {
+    console.warn("[/api/chat] Warning: GEMINI_API_KEY environment variable is not set.");
+    return res.status(200).json({
+      content: `Hello! I am ${botName}. I am ready to talk, but my GEMINI_API_KEY needs to be configured in environment variables.`,
+      audio: null,
+      error: "GEMINI_API_KEY missing"
+    });
   }
 
   const { voiceName, systemInstruction } = getPersonaConfig(botName, gender, role);
 
   try {
-    const chat = ai.models.generateContent({
-      model: "gemini-3.6-flash",
+    const activeAi = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    console.log(`[/api/chat] Calling gemini-2.5-flash text model...`);
+    const chatResponse = await activeAi.models.generateContent({
+      model: "gemini-2.5-flash",
       contents: messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
+        parts: [{ text: m.content || "" }]
       })),
       config: { systemInstruction },
     });
 
-    const response = await chat;
-    const textContent = response.text || "I'm here with you.";
+    const textContent = chatResponse.text || `I'm here with you, ${botName} at your service.`;
+    console.log(`[/api/chat] Generated response (${textContent.length} chars): "${textContent.slice(0, 60)}..."`);
     
     // Generate TTS Audio
-    let audioBase64 = null;
+    let audioBase64: string | null = null;
     try {
-      const ttsResponse = await ai.models.generateContent({
+      console.log(`[/api/chat] Calling gemini-2.5-flash TTS audio model...`);
+      const ttsResponse = await activeAi.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ parts: [{ text: textContent }] }],
         config: {
@@ -243,31 +270,21 @@ app.post("/api/chat", async (req, res) => {
         },
       });
       audioBase64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-    } catch (ttsError) {
-      console.error("TTS Error with gemini-2.5-flash:", ttsError);
-      try {
-        const ttsFallback = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: [{ parts: [{ text: textContent }] }],
-          config: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName },
-              },
-            },
-          },
-        });
-        audioBase64 = ttsFallback.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-      } catch (err2) {
-        console.error("TTS Fallback Error:", err2);
+      if (audioBase64) {
+        console.log(`[/api/chat] Audio generated successfully (${audioBase64.length} bytes base64)`);
       }
+    } catch (ttsError) {
+      console.error("[/api/chat] TTS Audio Generation Error (falling back to client voice):", ttsError);
     }
 
-    res.json({ content: textContent, audio: audioBase64 });
+    return res.status(200).json({ content: textContent, audio: audioBase64, error: null });
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    res.status(500).json({ error: "Failed to communicate with " + botName + ". Please check your API key." });
+    console.error("[/api/chat] Gemini API Error:", error?.message || error);
+    return res.status(200).json({ 
+      content: `I am having a moment connecting to my AI core right now. (${error?.message || "Connection error"}). Please try sending your message again!`, 
+      audio: null, 
+      error: error?.message || "Internal server error" 
+    });
   }
 });
 
